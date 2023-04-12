@@ -4,6 +4,7 @@ import logging
 import os
 import itertools
 import asyncio
+import json
 
 import telegram
 from uuid import uuid4
@@ -50,7 +51,11 @@ class ChatGPTTelegramBot:
         "daily": " today",
         "all-time": ""
     }
-
+    
+    activechats=[]
+    idtousernamedict={}
+    baselimit=10
+    
     def __init__(self, config: dict, openai: OpenAIHelper):
         """
         Initializes the bot with the given configuration and GPT bot object.
@@ -74,6 +79,22 @@ class ChatGPTTelegramBot:
         self.budget_limit_message = f"Sorry, you have reached your usage limit{self.budget_print_map[config['budget_period']]}."
         self.usage = {}
         self.last_message = {}
+        #load chats
+        if os.path.exists("achats.json"):
+            with open("achats.json", "r") as outfile:
+                ttext = outfile.readline()
+                ts = ttext.split(',')
+                for cchat in ts:
+                    cch=cchat.strip().replace("[","").replace("]","")
+                    if (len(cch)>1):
+                        self.activechats.append(int(cch))
+                #self.activechats = json.dumps(ttext)
+                logging.warning("chats loaded "+str(len(self.activechats)))
+        #chat names        
+        if os.path.exists("achatnames.json"):        
+            with open("achatnames.json","r") as file2:
+                #ttext = file2.readline()
+                self.idtousernamedict = json.load(file2)
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """
@@ -81,16 +102,58 @@ class ChatGPTTelegramBot:
         """
         commands = self.group_commands if self.is_group_chat(update) else self.commands
         commands_description = [f'/{command.command} - {command.description}' for command in commands]
+        chid = update.message.chat_id
+        if chid not in self.activechats:
+            self.activechats.append(chid)
+            
+            with open("achats.json", "w") as outfile:
+                json.dump(self.activechats, outfile)
+            
+        self.idtousernamedict[chid]=update.message.from_user.name
+        with open("achatnames.json", "w") as outfile2:
+            json.dump(self.idtousernamedict, outfile2)
+            
         help_text = 'I\'m a ChatGPT bot, talk to me using VOICE!' + \
                     '\n My commands: \n' + \
                     '\n'.join(commands_description) + \
                     '\n\n' + \
                     'Send me a voice message and i will reply to it using my Voice!' + \
                     '\n\n' + \
-                    "Open source at https://github.com/ \n SUPPORT: https://yoomoney.ru/to/41001653071063"
+                    "\n SUPPORT:\n https://yoomoney.ru/to/41001653071063"
         await update.message.reply_text(help_text, disable_web_page_preview=True)
+    
+    async def adminCmd(self, chat_id, text:str, context: ContextTypes.DEFAULT_TYPE):
+        #Команды для администратора: \n посмотреть список пользователей /userlist \n отправить сообщение всем пользователям /all
+        if text.lower().find("all")>-1:
+            #send text to all
+            allt = text.replace("/all","")
+            for ch in self.activechats:
+                await context.bot.send_message(chat_id=ch,text=allt)
+            
+            await context.bot.send_message(chat_id=chat_id,text="переслано во все чаты в кол-ве="+str(len(self.activechats)) )
+        elif text.lower().find("kick")>-1:
+            kikparts=text.split('_')
+            userid=int(kikparts[1])
+            self.bannedids.append(userid)
+            #save banned
+            with open("banned.json","w") as f:
+                json.dump(self.bannedids,f)
 
+            await context.bot.send_message(chat_id=chat_id,text='user with id '+str(userid)+' banned' )    
+        elif text.lower().find("userlist")>-1:
+            users=""
+            for ch in self.activechats:
+                username = " not found! "
+                if ch in self.idtousernamedict:
+                    username = self.idtousernamedict[ch]
 
+                users = users + "id: " + str(ch) + " username: "+username +", input /kick_"+str(ch)+" for BAN"
+                users = users +"\n"
+            await context.bot.send_message(chat_id=chat_id,text=users )            
+        else:
+            await context.bot.send_message(chat_id=chat_id,text="вы АДМИН этого бота \n "+self.admincommands )
+        return None
+        
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         Returns token usage statistics for current day and month.
@@ -194,8 +257,13 @@ class ChatGPTTelegramBot:
         """
         if not self.config['enable_image_generation'] or not await self.check_allowed_and_within_budget(update, context):
             return
-
+        
+            
         chat_id = update.effective_chat.id
+        #audio only
+        await context.bot.send_message(chat_id,text='sorry, only audio messages support!')
+        return
+    
         image_query = message_text(update.message)
         if image_query == '':
             await context.bot.send_message(chat_id=chat_id, text='Please provide a prompt! (e.g. /image cat)')
@@ -243,7 +311,17 @@ class ChatGPTTelegramBot:
 
         chat_id = update.effective_chat.id
         filename = update.message.effective_attachment.file_unique_id
-
+        chid = chat_id
+        if chid not in self.activechats:
+            self.activechats.append(chid)
+            
+            with open("achats.json", "w") as outfile:
+                json.dump(self.activechats, outfile)
+            
+        self.idtousernamedict[chid]=update.message.from_user.name
+        with open("achatnames.json", "w") as outfile2:
+            json.dump(self.idtousernamedict, outfile2)
+            
         async def _execute():
             filename_mp3 = f'{filename}.mp3'
 
@@ -283,7 +361,7 @@ class ChatGPTTelegramBot:
                 self.usage[user_id] = UsageTracker(user_id, update.message.from_user.name)
             #notify
             await context.bot.send_message(chat_id=chat_id,text="your audio received ok, wait for transcribe!")
-
+            fnametts=''
             # send decoded audio to openai
             try:
 
@@ -341,12 +419,12 @@ class ChatGPTTelegramBot:
                     logging.warning("Going to do TTS!")
                     language = 'en'
                     tts = gTTS(orig , lang=language, slow=False)        
-                    fname="speech_"+str(chat_id)+"_"+str(uuid.uuid1())+".mp3"
-                    tts.save(fname)
-                    #inp = FileInput(files=fname)
-                    await context.bot.send_audio(chat_id=chat_id,audio=open(fname, 'rb'),reply_to_message_id=self.get_reply_to_message_id(update) if index == 0 else None)
+                    fnametts="speech_"+str(chat_id)+"_"+str(uuid.uuid1())+".mp3"
+                    tts.save(fnametts)
+                    #inp = FileInput(files=fnametts)
+                    await context.bot.send_audio(chat_id=chat_id,audio=open(fnametts, 'rb'),reply_to_message_id=self.get_reply_to_message_id(update) if index == 0 else None)
                     #audio = telegram.Audio()
-                    os.remove(fname)
+                    
                     
                         
 
@@ -364,6 +442,8 @@ class ChatGPTTelegramBot:
                     os.remove(filename_mp3)
                 if os.path.exists(filename):
                     os.remove(filename)
+                if os.path.exists(fnametts):
+                    os.remove(fnametts) 
 
         await self.wrap_with_indicator(update, context, constants.ChatAction.TYPING, _execute)
 
@@ -377,6 +457,15 @@ class ChatGPTTelegramBot:
         logging.info(f'New message received from user {update.message.from_user.name} (id: {update.message.from_user.id})')
         chat_id = update.effective_chat.id
         user_id = update.message.from_user.id
+        
+        if self.is_admin(update):
+            await self.adminCmd(chat_id, prompt, context)
+            return None
+            
+        #audio only
+        await context.bot.send_message(chat_id,text='sorry, only audio messages support!')
+        return
+    
         prompt = message_text(update.message)
         self.last_message[chat_id] = prompt
 
@@ -787,7 +876,12 @@ class ChatGPTTelegramBot:
         Splits a string into chunks of a given size.
         """
         return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
-
+    
+    async def adminCmdComm(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        logging.info('code at adminCmdComm')
+        res = await self.adminCmd(update.effective_message.chat_id, update.message.text, context)
+        return res
+        
     async def post_init(self, application: Application) -> None:
         """
         Post initialization hook for the bot.
@@ -813,6 +907,9 @@ class ChatGPTTelegramBot:
         application.add_handler(CommandHandler('start', self.help))
         application.add_handler(CommandHandler('stats', self.stats))
         application.add_handler(CommandHandler('resend', self.resend))
+        application.add_handler(CommandHandler('userlist', self.adminCmdComm))
+        application.add_handler(CommandHandler('all', self.adminCmdComm))
+        
         application.add_handler(CommandHandler(
             'chat', self.prompt, filters=filters.ChatType.GROUP | filters.ChatType.SUPERGROUP)
         )
