@@ -67,11 +67,7 @@ class ChatGPTTelegramBot:
         self.openai = openai
         self.commands = [
             BotCommand(command='help', description='Show help message'),
-            BotCommand(command='reset', description='Reset the conversation. Optionally pass high-level instructions '
-                                                    '(e.g. /reset You are a helpful assistant)'),
-            BotCommand(command='image', description='Generate image from prompt (e.g. /image cat)'),
-            BotCommand(command='stats', description='Get your current usage statistics'),
-            BotCommand(command='resend', description='Resend the latest message')
+            BotCommand(command='stats', description='Get your current usage statistics')
         ]
         self.group_commands = [
             BotCommand(command='chat', description='Chat with the bot!')
