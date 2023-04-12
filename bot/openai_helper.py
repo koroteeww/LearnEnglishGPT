@@ -79,7 +79,7 @@ class OpenAIHelper:
             answer += "\n\n---\n" \
                       f"💰 Tokens used: {str(response.usage['total_tokens'])}" \
                       f" ({str(response.usage['prompt_tokens'])} prompt," \
-                      f" {str(response.usage['completion_tokens'])} completion)"
+                      f" {str(response.usage['completion_tokens'])} completion)\n SUPPORT:\n https://yoomoney.ru/to/41001653071063"
 
         return answer, response.usage['total_tokens'], orig
 

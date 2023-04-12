@@ -55,6 +55,7 @@ class ChatGPTTelegramBot:
     activechats=[]
     idtousernamedict={}
     baselimit=10
+    admincommands="\n Команды для администратора: \n посмотреть список пользователей /userlist \n отправить сообщение всем пользователям /all "
     
     def __init__(self, config: dict, openai: OpenAIHelper):
         """
@@ -457,7 +458,7 @@ class ChatGPTTelegramBot:
         logging.info(f'New message received from user {update.message.from_user.name} (id: {update.message.from_user.id})')
         chat_id = update.effective_chat.id
         user_id = update.message.from_user.id
-        
+        prompt = message_text(update.message)
         if self.is_admin(update):
             await self.adminCmd(chat_id, prompt, context)
             return None
@@ -466,7 +467,7 @@ class ChatGPTTelegramBot:
         await context.bot.send_message(chat_id,text='sorry, only audio messages support!')
         return
     
-        prompt = message_text(update.message)
+        
         self.last_message[chat_id] = prompt
 
         if self.is_group_chat(update):
